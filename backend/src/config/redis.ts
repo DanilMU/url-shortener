@@ -10,20 +10,24 @@ export class RedisService extends Redis {
 			maxRetriesPerRequest: 5,
 			enableOfflineQueue: true,
 			lazyConnect: true,
+			keepAlive: 10000,
+			family: 4,
+			retryStrategy: (times) => Math.min(times * 100, 3000),
 		});
 
 		this.registerEvents();
 	}
 
 	private registerEvents(): void {
-		const start = Date.now();
+		let connectStart = Date.now();
 
 		this.on('connect', () => {
+			connectStart = Date.now();
 			console.log('🔄 Redis connecting...');
 		});
 
 		this.on('ready', () => {
-			const ms = Date.now() - start;
+			const ms = Date.now() - connectStart;
 			console.log(`✅ Redis ready in ${ms}ms (${env.REDIS_HOST}:${env.REDIS_PORT})`);
 		});
 

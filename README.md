@@ -16,7 +16,7 @@
 * **Защита от коллизий**: 6-значный генератор `nanoid` с автоматическим циклом повторных попыток (до 5 попыток) при маловероятном совпадении слага.
 * **Защита от бесконечных циклов**: Запрет на сокращение `localhost`, `127.0.0.1` и адреса самого сервиса.
 * **Строгий Fail-Fast конфигуратор**: Переменные окружения валидируются через Zod на старте приложения. Если в `.env` отсутствует хотя бы одно обязательное поле, приложение моментально останавливается с понятным списком ошибок.
-* **Clean Test Architecture**: 31 автоматизированный тест (изолированные Unit-тесты с фабриками данных `createUrlFixture`, интеграционные тесты с реальной PostgreSQL, тесты документации Swagger и сквозные HTTP API тесты через Supertest).
+* **Clean Test Architecture**: 33 автоматизированных теста (13 изолированных Unit-тестов бизнес-логики с фабриками данных `createUrlFixture`, 20 интеграционных тестов с реальной PostgreSQL, тесты документации Swagger и сквозные HTTP API тесты через Supertest).
 
 ---
 
@@ -65,6 +65,7 @@ DATABASE_URL=postgresql://postgres:123456@localhost:5433/url_shortener
 
 # Redis
 HOST_REDIS_PORT=6379
+HOST_REDISINSIGHT_PORT=5540
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
@@ -79,10 +80,14 @@ VITE_API_URL=http://localhost:4000
 
 ---
 
-### Шаг 3. Запуск баз данных в Docker
-Поднимите контейнеры PostgreSQL и Redis в фоновом режиме:
+### Шаг 3. Запуск баз данных и инструментов в Docker
+Поднимите контейнеры PostgreSQL, Redis и Redis Insight в фоновом режиме:
 ```bash
+# Базовый запуск БД
 docker compose up -d postgres redis
+
+# Или с веб-интерфейсом Redis Insight для визуализации кэша
+docker compose up -d postgres redis redisinsight
 ```
 
 Проверьте статус контейнеров (должны быть в статусе `healthy`):
@@ -143,7 +148,7 @@ Orval считывает спецификацию `openapi.yaml` и автома
 ```bash
 cd backend
 
-# Запуск ВСЕХ тестов проекта (31 тест)
+# Запуск ВСЕХ тестов проекта (33 теста: 13 unit + 20 integration)
 npm test
 
 # Запуск ТОЛЬКО быстрых Unit-тестов бизнес-логики (14 мс)
@@ -185,6 +190,61 @@ docker compose down
 | **Database** | `url_shortener` |
 | **User** | `postgres` |
 | **Password** | `123456` |
+
+---
+
+## 🔍 Визуализация кэша через Redis Insight (GUI)
+
+В проект интегрирован **Redis Insight** — официальный современный веб-GUI от команды Redis для интерактивного анализа ключей, визуализации TTL, мониторинга памяти и инспекции закэшированных ссылок в реальном времени (по архитектурному стандарту `StackCine`).
+
+### 1. Запуск сервиса в Docker
+```bash
+# Запустить только Redis и веб-интерфейс Redis Insight
+docker compose up -d redis redisinsight
+```
+
+### 2. Подключение к Redis в веб-интерфейсе
+1. Откройте в браузере: **[`http://localhost:5540`](http://localhost:5540)**
+2. Примите условия соглашения (при первом входе) и нажмите кнопку **"Add Redis Database"** (или **"I already have a database"** -> **"Connect to a Redis Database"**).
+3. Заполните параметры подключения:
+
+| Поле | Значение (в веб-GUI) | Значение (в Desktop-клиенте) | Описание |
+| :--- | :--- | :--- | :--- |
+| **Host** | `redis` | `localhost` | Имя контейнера в сети Docker `url_shortener_network` |
+| **Port** | `6379` | `6379` | Внутренний / внешний порт Redis |
+| **Database Alias** | `URL Shortener Redis` | `URL Shortener Redis` | Произвольное название для отображения в списке |
+| **Username** | *(оставить пустым)* | *(оставить пустым)* | Аутентификация по умолчанию отключена |
+| **Password** | *(оставить пустым)* | *(оставить пустым)* | Пароль по умолчанию не требуется в dev-среде |
+
+4. Нажмите **"Add Redis Database"**. База сразу перейдет в статус подключенной со значком онлайн-статуса.
+
+> [!TIP]
+> **Host `redis` vs `localhost`**:
+> Так как контейнер `url_shortener_redisinsight` находится внутри одной Docker-сети `url_shortener_network` с контейнером `url_shortener_redis`, для веб-интерфейса Host всегда должен быть `redis`. Если же вы запускаете отдельное десктопное приложение Redis Insight на вашей ОС Windows/macOS, указывайте Host `localhost`.
+
+### 3. Инспекция кэша в реальном времени (Что смотреть)
+1. **Просмотр структуры ключей (`Key Details`)**:
+   Создайте ссылку через веб-интерфейс ([`http://localhost:3000`](http://localhost:3000)) или отправьте запрос `POST /api/shorten`.
+   В дереве ключей Redis Insight моментально появится строковый ключ с префиксом `url:` (например, `url:react-docs` или `url:DbTD_h`).
+2. **Обратный отсчет TTL (Time-To-Live)**:
+   При клике на ключ отображается актуальный TTL с живым обратным отсчетом (начиная с 3600 секунд). По истечении TTL ключ автоматически очищается из памяти Redis.
+3. **Содержимое закэшированного JSON-объекта**:
+   ```json
+   {
+     "id": 1,
+     "short_code": "react-docs",
+     "original_url": "https://react.dev",
+     "clicks": 0,
+     "created_at": "2026-09-24T20:30:00.000Z"
+   }
+   ```
+4. **Интерактивная консоль (CLI Workbench)**:
+   В левом нижнем углу интерфейса доступен терминал `Workbench / CLI`, где можно выполнять прямые команды Redis:
+   ```redis
+   KEYS url:*
+   TTL url:react-docs
+   GET url:react-docs
+   ```
 
 ---
 
@@ -341,7 +401,7 @@ curl -X GET "http://localhost:4000/api/urls?limit=10"
 ```
 url-shortener/
 ├── .env.example                                # Шаблон переменных окружения
-├── docker-compose.yml                          # Инфраструктура (PostgreSQL, Redis, Backend, Frontend)
+├── docker-compose.yml                          # Инфраструктура (PostgreSQL, Redis, Redis Insight, Backend, Frontend)
 ├── README.md                                   # Документация проекта
 ├── backend/                                    # Express + TypeScript API сервис
 │   ├── Dockerfile                              # Multi-stage сборка бэкенда
@@ -375,7 +435,7 @@ url-shortener/
 │   │   │   └── url.service.ts                 # Бизнес-логика, nanoid, фоновые клики
 │   │   ├── app.ts                             # Сборка Express приложения
 │   │   └── server.ts                          # Bootstrap с graceful shutdown
-│   ├── tests/                                 # 31 автоматизированный тест
+│   ├── tests/                                 # 33 автоматизированных теста (13 unit + 20 integration)
 │   │   ├── fixtures/
 │   │   │   └── url.fixture.ts                 # Фабрика тестовых данных (DRY)
 │   │   ├── integration/
@@ -392,14 +452,14 @@ url-shortener/
 │   │   │   └── test-db.helper.ts              # TRUNCATE таблиц перед тестами
 │   │   └── unit/
 │   │       └── services/
-│   │           └── url.service.spec.ts        # 13 модульных тестов логики
+│   │           └── url.service.spec.ts        # 13 модульных тестов бизнес-логики
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── vitest.config.mjs                      # Конфигурация Vitest
-└── frontend/                                   # React + Vite + TypeScript + Tailwind
+└── frontend/                                   # React + Vite + TypeScript + Tailwind (Минималистичный UI)
     ├── Dockerfile                              # Multi-stage сборка Nginx + SPA
     ├── nginx.conf                              # Конфигурация Nginx
-    ├── orval.config.ts                         # Orval кодогенерация из openapi.yaml
+    ├── orval.config.ts                         # Orval кодогенерация из сетевого openapi.yaml
     ├── src/
     │   ├── api/
     │   │   ├── instance.ts                    # Axios инстанс (baseURL, withCredentials)
@@ -408,7 +468,8 @@ url-shortener/
     │   │   └── hooks/                         # useShortenUrl, useGetRecentUrls, etc.
     │   ├── components/
     │   │   ├── Navbar.tsx                     # Шапка со статусом бэкенда и ссылкой на /docs
-    │   │   ├── ShortenCard.tsx                # Форма сокращения URL + кастомный алиас
+    │   │   ├── Drawer.tsx                     # Slide-over выезжающее бургер-меню (История и Аналитика)
+    │   │   ├── ShortenCard.tsx                # Минималистичное поле ввода URL + "Свой код" + копирование
     │   │   ├── RecentUrlsTable.tsx            # Список недавних ссылок со счетчиком кликов
     │   │   └── StatsLookup.tsx                # Поиск статистики по коду ссылки
     │   ├── config/
@@ -433,3 +494,5 @@ url-shortener/
    - Если порт `5433` на вашем ПК занят другим сервисом, измените значение `HOST_POSTGRES_PORT` в `.env` (например, на `5434`) и перезапустите контейнер: `docker compose up -d postgres`.
 3. **Ошибки при старте `npm run dev`**:
    - Убедитесь, что контейнеры запущены и находятся в статусе `healthy`: `docker compose ps`. Приложение падает на этапе инициализации (Fail-Fast), если базы данных недоступны.
+4. **Периодический разрыв соединения с Redis `read ECONNRESET` на Windows (Docker Desktop)**:
+   - В Docker Desktop для Windows (NAT прокси WSL2/Hyper-V) неактивные TCP соединения сбрасываются по таймауту 30 секунд. В проекте это решено на уровне конфигурации клиента `ioredis` опциями `keepAlive: 10000` (10 секунд) и `family: 4` (IPv4). Если вы запускаете свой клиент, всегда указывайте `keepAlive: 10000`.
