@@ -22,7 +22,7 @@ const envSchema = z.object({
 	POSTGRES_HOST: z.string().default('localhost'),
 	POSTGRES_PORT: z.coerce.number().default(5433),
 	POSTGRES_USER: z.string().default('postgres'),
-	POSTGRES_PASSWORD: z.string().default('postgrespassword'),
+	POSTGRES_PASSWORD: z.string().default('123456'),
 	POSTGRES_DB: z.string().default('url_shortener'),
 	DATABASE_URL: z.string().optional(),
 
