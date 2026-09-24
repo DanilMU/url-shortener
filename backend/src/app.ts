@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express, { type Application } from 'express';
 import morgan from 'morgan';
+import { getCorsConfig } from './config/cors.config';
 import { setupSwagger } from './config/swagger.config';
 import { errorHandler } from './middlewares/error.middleware';
 import { router } from './routes/url.routes';
@@ -8,7 +9,7 @@ import { router } from './routes/url.routes';
 export const createApp = (): Application => {
 	const app = express();
 
-	app.use(cors());
+	app.use(cors(getCorsConfig()));
 	app.use(express.json());
 	app.use(morgan('dev'));
 
