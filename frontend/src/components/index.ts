@@ -1,3 +1,4 @@
+export * from './Drawer';
 export * from './Navbar';
 export * from './RecentUrlsTable';
 export * from './ShortenCard';
