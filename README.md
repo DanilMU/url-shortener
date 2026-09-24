@@ -11,10 +11,12 @@
 * **CQRS-lite слой данных (Pure PostgreSQL)**: Запросы на чтение (`SELECT`) изолированы в `url.queries.ts`, а модифицирующие команды (`INSERT`, `UPDATE`) — в `url.commands.ts`. Репозиторий `UrlRepository` инкапсулирует SQL и наружу отдаёт строго типизированные сущности.
 * **Субмиллисекундный кэш в Redis**: Доменный слой кэширования (`UrlCacheService`, `UrlCacheKeys`) с настраиваемым TTL (по умолчанию 3600 сек).
 * **Асинхронный инкремент кликов (Fire-and-forget)**: При переходе по ссылке ответ `302 Found` отдаётся клиенту мгновенно из Redis (<2 мс), а инкремент кликов в PostgreSQL запускается асинхронно в фоне без блокировки HTTP-соединения.
+* **Интерактивная Swagger (OpenAPI 3.0) документация (StackCine style)**: Встроенный UI по адресу `/docs`, а также машиночитаемые спецификации `/openapi.yaml` и `/openapi.json`.
+* **Сквозная типизация API через Orval**: Фронтенд на React + Vite + TypeScript генерирует строгие DTO-модели и хуки TanStack Query напрямую из OpenAPI спецификации бэкенда (`npm run api:gen`).
 * **Защита от коллизий**: 6-значный генератор `nanoid` с автоматическим циклом повторных попыток (до 5 попыток) при маловероятном совпадении слага.
 * **Защита от бесконечных циклов**: Запрет на сокращение `localhost`, `127.0.0.1` и адреса самого сервиса.
 * **Строгий Fail-Fast конфигуратор**: Переменные окружения валидируются через Zod на старте приложения. Если в `.env` отсутствует хотя бы одно обязательное поле, приложение моментально останавливается с понятным списком ошибок.
-* **Clean Test Architecture**: 27 автоматизированных тестов (изолированные Unit-тесты с фабриками данных `createUrlFixture`, интеграционные тесты с реальной PostgreSQL и сквозные HTTP API тесты через Supertest).
+* **Clean Test Architecture**: 31 автоматизированный тест (изолированные Unit-тесты с фабриками данных `createUrlFixture`, интеграционные тесты с реальной PostgreSQL, тесты документации Swagger и сквозные HTTP API тесты через Supertest).
 
 ---
 
@@ -114,6 +116,26 @@ npm run dev
 
 ---
 
+### Шаг 5. Запуск фронтенда (React + Vite + Tailwind)
+В отдельном окне терминала запустите клиентскую часть:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Веб-приложение откроется по адресу: **`http://localhost:3000`**
+
+### Синхронизация API через Orval
+При изменении маршрутов или DTO бэкенда, клиентские типы мгновенно обновляются командой:
+```bash
+cd frontend
+npm run api:gen
+```
+Orval считывает спецификацию `openapi.yaml` и автоматически генерирует типизированные DTO в каталоге `src/api/generated/`.
+
+---
+
 ## 🧪 Запуск автоматических тестов
 
 В проекте настроена трёхуровневая система тестирования на базе **Vitest** и **Supertest**:
@@ -121,13 +143,13 @@ npm run dev
 ```bash
 cd backend
 
-# Запуск ВСЕХ тестов проекта (27 тестов)
+# Запуск ВСЕХ тестов проекта (31 тест)
 npm test
 
 # Запуск ТОЛЬКО быстрых Unit-тестов бизнес-логики (14 мс)
 npm run test:unit
 
-# Запуск ТОЛЬКО интеграционных тестов с реальной БД и HTTP API
+# Запуск ТОЛЬКО интеграционных тестов с реальной БД, Swagger и HTTP API
 npm run test:integration
 
 # Проверка сборки продакшн-бандла
@@ -163,6 +185,18 @@ docker compose down
 | **Database** | `url_shortener` |
 | **User** | `postgres` |
 | **Password** | `123456` |
+
+---
+
+## 📖 Интерактивная документация Swagger (OpenAPI 3.0)
+
+В сервис встроен полноценный интерфейс **Swagger UI**, выполненный по архитектурному шаблону проекта `StackCine`:
+
+* 🌐 **Swagger UI веб-интерфейс**: [`http://localhost:4000/docs`](http://localhost:4000/docs) (или `/api/docs`)
+* 📄 **OpenAPI 3.0 спецификация (YAML)**: [`http://localhost:4000/openapi.yaml`](http://localhost:4000/openapi.yaml)
+* 📑 **OpenAPI 3.0 спецификация (JSON)**: [`http://localhost:4000/openapi.json`](http://localhost:4000/openapi.json)
+
+В Swagger UI можно интерактивно протестировать все доступные роуты, просмотреть схемы запросов/ответов и коды ошибок (`201`, `302`, `400`, `404`, `409`).
 
 ---
 
@@ -307,56 +341,86 @@ curl -X GET "http://localhost:4000/api/urls?limit=10"
 ```
 url-shortener/
 ├── .env.example                                # Шаблон переменных окружения
-├── docker-compose.yml                          # Инфраструктура (PostgreSQL, Redis, App)
+├── docker-compose.yml                          # Инфраструктура (PostgreSQL, Redis, Backend, Frontend)
 ├── README.md                                   # Документация проекта
-└── backend/
-    ├── src/                                    # Продакшн исходный код
+├── backend/                                    # Express + TypeScript API сервис
+│   ├── Dockerfile                              # Multi-stage сборка бэкенда
+│   ├── src/
+│   │   ├── config/
+│   │   │   ├── db.ts                          # Пул PostgreSQL с логированием
+│   │   │   ├── env.ts                         # Zod fail-fast конфигурация
+│   │   │   ├── redis.ts                       # ioredis клиент с lifecycle events
+│   │   │   └── swagger.config.ts              # Swagger UI & OpenAPI 3.0 (StackCine style)
+│   │   ├── controllers/
+│   │   │   └── url.controller.ts              # HTTP контроллеры с валидацией Zod
+│   │   ├── docs/
+│   │   │   └── openapi.yaml                   # OpenAPI 3.0 спецификация для Orval
+│   │   ├── errors/
+│   │   │   └── app.error.ts                   # Доменные ошибки (400, 404, 409)
+│   │   ├── infra/
+│   │   │   ├── cache/
+│   │   │   │   ├── url.cache.keys.ts          # Генераторы ключей кэша
+│   │   │   │   └── url.cache.service.ts       # Кэширование в Redis с TTL
+│   │   │   └── sql/
+│   │   │       ├── commands/url.commands.ts   # SQL команды (INSERT, UPDATE)
+│   │   │       ├── queries/url.queries.ts     # SQL запросы (SELECT)
+│   │   │       └── init.sql                   # DDL схема базы данных
+│   │   ├── middlewares/
+│   │   │   └── error.middleware.ts            # Централизованный обработчик ошибок
+│   │   ├── repositories/
+│   │   │   └── url.repository.ts              # Доменный репозиторий
+│   │   ├── routes/
+│   │   │   └── url.routes.ts                  # Маршрутизация Express
+│   │   ├── services/
+│   │   │   └── url.service.ts                 # Бизнес-логика, nanoid, фоновые клики
+│   │   ├── app.ts                             # Сборка Express приложения
+│   │   └── server.ts                          # Bootstrap с graceful shutdown
+│   ├── tests/                                 # 31 автоматизированный тест
+│   │   ├── fixtures/
+│   │   │   └── url.fixture.ts                 # Фабрика тестовых данных (DRY)
+│   │   ├── integration/
+│   │   │   ├── api/
+│   │   │   │   ├── redirect.api.test.ts       # Тесты GET /:shortCode
+│   │   │   │   ├── shorten.api.test.ts        # Тесты POST /api/shorten
+│   │   │   │   ├── stats.api.test.ts          # Тесты GET /api/stats
+│   │   │   │   └── swagger.api.test.ts        # Тесты Swagger /docs и OpenAPI
+│   │   │   └── repositories/
+│   │   │       └── url.repository.test.ts     # Тесты SQL репозитория в PostgreSQL
+│   │   ├── setup/
+│   │   │   ├── api-test.setup.ts              # Общий сетап API
+│   │   │   ├── global-teardown.ts             # Централизованный teardown пулов
+│   │   │   └── test-db.helper.ts              # TRUNCATE таблиц перед тестами
+│   │   └── unit/
+│   │       └── services/
+│   │           └── url.service.spec.ts        # 13 модульных тестов логики
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── vitest.config.mjs                      # Конфигурация Vitest
+└── frontend/                                   # React + Vite + TypeScript + Tailwind
+    ├── Dockerfile                              # Multi-stage сборка Nginx + SPA
+    ├── nginx.conf                              # Конфигурация Nginx
+    ├── orval.config.ts                         # Orval кодогенерация из openapi.yaml
+    ├── src/
+    │   ├── api/
+    │   │   ├── instance.ts                    # Axios инстанс (baseURL, withCredentials)
+    │   │   ├── generated/                     # Orval-генерированные DTO типы
+    │   │   ├── requests/                      # url.ts, health.ts (типизированные запросы)
+    │   │   └── hooks/                         # useShortenUrl, useGetRecentUrls, etc.
+    │   ├── components/
+    │   │   ├── Navbar.tsx                     # Шапка со статусом бэкенда и ссылкой на /docs
+    │   │   ├── ShortenCard.tsx                # Форма сокращения URL + кастомный алиас
+    │   │   ├── RecentUrlsTable.tsx            # Список недавних ссылок со счетчиком кликов
+    │   │   └── StatsLookup.tsx                # Поиск статистики по коду ссылки
     │   ├── config/
-    │   │   ├── db.ts                          # Пул PostgreSQL с логированием
-    │   │   ├── env.ts                         # Zod fail-fast конфигурация
-    │   │   └── redis.ts                       # ioredis клиент с lifecycle events
-    │   ├── controllers/
-    │   │   └── url.controller.ts              # HTTP контроллеры с валидацией Zod
-    │   ├── errors/
-    │   │   └── app.error.ts                   # Доменные ошибки (400, 404, 409)
-    │   ├── infra/
-    │   │   ├── cache/
-    │   │   │   ├── url.cache.keys.ts          # Генераторы ключей кэша
-    │   │   │   └── url.cache.service.ts       # Кэширование в Redis с TTL
-    │   │   └── sql/
-    │   │       ├── commands/url.commands.ts   # SQL команды (INSERT, UPDATE)
-    │   │       ├── queries/url.queries.ts     # SQL запросы (SELECT)
-    │   │       └── init.sql                   # DDL схема базы данных
-    │   ├── middlewares/
-    │   │   └── error.middleware.ts            # Централизованный обработчик ошибок
-    │   ├── repositories/
-    │   │   └── url.repository.ts              # Доменный репозиторий
-    │   ├── routes/
-    │   │   └── url.routes.ts                  # Маршрутизация Express
-    │   ├── services/
-    │   │   └── url.service.ts                 # Бизнес-логика, nanoid, фоновые клики
-    │   ├── app.ts                             # Сборка Express приложения
-    │   └── server.ts                          # Bootstrap с graceful shutdown
-    ├── tests/                                 # Автоматизированные тесты
-    │   ├── fixtures/
-    │   │   └── url.fixture.ts                 # Фабрика тестовых данных (DRY)
-    │   ├── integration/
-    │   │   ├── api/
-    │   │   │   ├── redirect.api.test.ts       # Тесты GET /:shortCode
-    │   │   │   ├── shorten.api.test.ts        # Тесты POST /api/shorten
-    │   │   │   └── stats.api.test.ts          # Тесты GET /api/stats
-    │   │   └── repositories/
-    │   │       └── url.repository.test.ts     # Тесты SQL репозитория в PostgreSQL
-    │   ├── setup/
-    │   │   ├── api-test.setup.ts              # Общий сетап API
-    │   │   ├── global-teardown.ts             # Централизованный teardown пулов
-    │   │   └── test-db.helper.ts              # TRUNCATE таблиц перед тестами
-    │   └── unit/
-    │       └── services/
-    │           └── url.service.spec.ts        # 13 модульных тестов логики
+    │   │   └── react-query.ts                 # REACT_QUERY_CONFIG из StackCine
+    │   ├── providers/
+    │   │   ├── react-query.tsx                # ReactQueryProvider
+    │   │   └── health-check.tsx               # HealthCheckProvider (fallback экран)
+    │   ├── App.tsx
+    │   ├── main.tsx
+    │   └── index.css
     ├── package.json
-    ├── tsconfig.json
-    └── vitest.config.mjs                      # Конфигурация Vitest
+    └── vite.config.ts
 ```
 
 ---
