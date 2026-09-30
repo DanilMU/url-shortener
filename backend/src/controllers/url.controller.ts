@@ -12,6 +12,12 @@ const shortenRequestSchema = z.object({
 		.optional(),
 });
 
+export const shortCodeParamSchema = z.object({
+	shortCode: z
+		.string()
+		.regex(/^[A-Za-z0-9]{6}$/, 'Short code must consist of exactly 6 alphanumeric characters'),
+});
+
 export class UrlController {
 	public constructor(private readonly service: UrlService = urlService) {}
 
@@ -39,7 +45,7 @@ export class UrlController {
 		next: NextFunction,
 	): Promise<void> => {
 		try {
-			const shortCode = String(req.params.shortCode);
+			const { shortCode } = shortCodeParamSchema.parse(req.params);
 			const originalUrl = await this.service.resolveUrl(shortCode);
 
 			res.redirect(302, originalUrl);
@@ -54,7 +60,7 @@ export class UrlController {
 		next: NextFunction,
 	): Promise<void> => {
 		try {
-			const shortCode = String(req.params.shortCode);
+			const { shortCode } = shortCodeParamSchema.parse(req.params);
 			const stats = await this.service.getStats(shortCode);
 
 			res.status(200).json({

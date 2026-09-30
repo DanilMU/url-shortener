@@ -23,6 +23,8 @@ describe('UrlService (Unit)', () => {
 			getUrl: vi.fn(),
 			setUrl: vi.fn().mockResolvedValue(undefined),
 			invalidate: vi.fn().mockResolvedValue(undefined),
+			incrementBufferedClicks: vi.fn().mockResolvedValue(1),
+			getBufferedClicks: vi.fn().mockResolvedValue(0),
 		} as unknown as UrlCacheService;
 
 		sut = new UrlService(repositoryMock, cacheMock);
@@ -111,17 +113,18 @@ describe('UrlService (Unit)', () => {
 	});
 
 	describe('resolveUrl', () => {
-		it('should return url from Redis cache immediately and trigger async click increment', async () => {
+		it('should return url from Redis cache immediately and buffer click without hitting database', async () => {
 			vi.mocked(cacheMock.getUrl).mockResolvedValue('https://cached.org');
 
 			const url = await sut.resolveUrl('cached-code');
 
 			expect(url).toBe('https://cached.org');
 			expect(repositoryMock.findByShortCode).not.toHaveBeenCalled();
-			expect(repositoryMock.incrementClicks).toHaveBeenCalledWith('cached-code');
+			expect(repositoryMock.incrementClicks).not.toHaveBeenCalled();
+			expect(cacheMock.incrementBufferedClicks).toHaveBeenCalledWith('cached-code');
 		});
 
-		it('should fetch from repository, update cache, and trigger click increment on Cache Miss', async () => {
+		it('should fetch from repository, update cache, and buffer click on Cache Miss', async () => {
 			vi.mocked(cacheMock.getUrl).mockResolvedValue(null);
 			vi.mocked(repositoryMock.findByShortCode).mockResolvedValue(
 				createUrlFixture({ short_code: 'db-code', original_url: 'https://db-source.org' }),
@@ -131,7 +134,7 @@ describe('UrlService (Unit)', () => {
 
 			expect(url).toBe('https://db-source.org');
 			expect(cacheMock.setUrl).toHaveBeenCalledWith('db-code', 'https://db-source.org');
-			expect(repositoryMock.incrementClicks).toHaveBeenCalledWith('db-code');
+			expect(cacheMock.incrementBufferedClicks).toHaveBeenCalledWith('db-code');
 		});
 
 		it('should throw NotFoundError when short code does not exist in cache or database', async () => {
@@ -143,15 +146,17 @@ describe('UrlService (Unit)', () => {
 	});
 
 	describe('getStats', () => {
-		it('should return stats with shortUrl for existing code', async () => {
+		it('should return stats combining database clicks and buffered clicks in Redis', async () => {
 			vi.mocked(repositoryMock.findByShortCode).mockResolvedValue(
 				createUrlFixture({ short_code: 'stats-code', clicks: 42 }),
 			);
+			vi.mocked(cacheMock.getBufferedClicks).mockResolvedValue(8);
 
 			const stats = await sut.getStats('stats-code');
 
-			expect(stats.clicks).toBe(42);
+			expect(stats.clicks).toBe(50); // 42 in DB + 8 in buffer
 			expect(stats.shortUrl).toContain('/stats-code');
+			expect(cacheMock.getBufferedClicks).toHaveBeenCalledWith('stats-code');
 		});
 
 		it('should throw NotFoundError when getting stats for non-existing code', async () => {

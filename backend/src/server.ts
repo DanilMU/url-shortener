@@ -2,6 +2,7 @@ import { createApp } from './app';
 import { db } from './config/db';
 import { env } from './config/env';
 import { redis } from './config/redis';
+import { clickBufferService } from './services/click-buffer.service';
 
 const bootstrap = async () => {
 	try {
@@ -10,6 +11,8 @@ const bootstrap = async () => {
 
 		await db.init();
 		await redis.init();
+
+		clickBufferService.start(env.CLICK_BUFFER_FLUSH_INTERVAL_MS);
 
 		const app = createApp();
 
@@ -25,6 +28,14 @@ const bootstrap = async () => {
 				console.log('🛑 HTTP server closed.');
 
 				try {
+					console.log('🔄 Flushing click buffer to PostgreSQL...');
+					try {
+						await clickBufferService.flush();
+					} catch (flushErr) {
+						console.error('⚠️ Error flushing click buffer during shutdown:', flushErr);
+					}
+					clickBufferService.stop();
+
 					await redis.close();
 					await db.close();
 					console.log('✅ Graceful shutdown completed cleanly.');

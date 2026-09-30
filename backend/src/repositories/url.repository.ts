@@ -45,6 +45,17 @@ export class UrlRepository {
 		return rows[0]?.clicks ?? null;
 	}
 
+	public async batchIncrementClicks(entries: { code: string; delta: number }[]): Promise<string[]> {
+		if (entries.length === 0) return [];
+		const codes = entries.map((e) => e.code);
+		const deltas = entries.map((e) => e.delta);
+		const rows = await this.database.raw<{ short_code: string }>(
+			URL_COMMANDS.BATCH_INCREMENT_CLICKS,
+			[codes, deltas],
+		);
+		return rows.map((r) => r.short_code);
+	}
+
 	public async getRecent(limit: number = 20): Promise<UrlEntity[]> {
 		return this.database.raw<UrlEntity>(
 			URL_QUERIES.GET_RECENT_URLS,

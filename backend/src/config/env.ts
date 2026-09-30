@@ -5,7 +5,7 @@ import { z } from 'zod';
 dotenv.config({ path: path.resolve(process.cwd(), '../.env'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 
-const envSchema = z.object({
+export const envSchema = z.object({
 	NODE_ENV: z.enum(['development', 'production', 'test']),
 	PORT: z.coerce.number(),
 	BASE_URL: z.string().url(),
@@ -22,20 +22,21 @@ const envSchema = z.object({
 	REDIS_PASSWORD: z.string().optional(),
 	REDIS_TTL_SECONDS: z.coerce.number(),
 
+	CLICK_BUFFER_FLUSH_INTERVAL_MS: z.coerce.number().default(5000),
 	VITE_API_URL: z.string().optional(),
 });
 
-const parseEnv = () => {
-	const parsed = envSchema.safeParse(process.env);
+export type Env = z.infer<typeof envSchema>;
+
+export const loadEnv = (customEnv: Record<string, unknown> = process.env): Env => {
+	const parsed = envSchema.safeParse(customEnv);
 
 	if (!parsed.success) {
-		console.error('❌ Missing or invalid environment variables in .env:');
-		console.error(JSON.stringify(parsed.error.format(), null, 2));
-		process.exit(1);
+		const formatted = JSON.stringify(parsed.error.format(), null, 2);
+		throw new Error(`Invalid environment configuration:\n${formatted}`);
 	}
 
 	return parsed.data;
 };
 
-export const env = parseEnv();
-export type Env = z.infer<typeof envSchema>;
+export const env: Env = loadEnv();

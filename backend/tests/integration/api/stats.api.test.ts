@@ -10,18 +10,23 @@ describe('GET /api/stats & /api/urls (Analytics API Integration)', () => {
 	it('should return stats with accurate clicks count after redirects', async () => {
 		await request(app)
 			.post('/api/shorten')
-			.send({ url: 'https://react.dev', customCode: 'stats-link' });
+			.send({ url: 'https://react.dev', customCode: 'stat01' });
 
-		await request(app).get('/stats-link');
-		await request(app).get('/stats-link');
+		await request(app).get('/stat01');
+		await request(app).get('/stat01');
 
-		await new Promise((r) => setTimeout(r, 80));
-
-		const statsRes = await request(app).get('/api/stats/stats-link');
+		const statsRes = await request(app).get('/api/stats/stat01');
 
 		expect(statsRes.status).toBe(200);
-		expect(statsRes.body.data.short_code).toBe('stats-link');
+		expect(statsRes.body.data.short_code).toBe('stat01');
 		expect(statsRes.body.data.clicks).toBe(2);
+	});
+
+	it('should return 400 Bad Request when requesting stats for malformed short code', async () => {
+		const res = await request(app).get('/api/stats/bad!');
+
+		expect(res.status).toBe(400);
+		expect(res.body.success).toBe(false);
 	});
 
 	it('should return list of recently created urls', async () => {

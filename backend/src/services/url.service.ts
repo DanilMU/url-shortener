@@ -1,8 +1,13 @@
-import { nanoid } from 'nanoid';
+import { customAlphabet } from 'nanoid';
 import { env } from '../config/env';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors/app.error';
 import { UrlCacheService, urlCacheService } from '../infra/cache/url.cache.service';
 import { UrlEntity, UrlRepository, urlRepository } from '../repositories/url.repository';
+
+const generateShortCode = customAlphabet(
+	'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+	6,
+);
 
 export interface ShortenResult extends UrlEntity {
 	shortUrl: string;
@@ -49,8 +54,9 @@ export class UrlService {
 		const cachedUrl = await this.cache.getUrl(shortCode);
 
 		if (cachedUrl) {
-			this.repository.incrementClicks(shortCode).catch((err) => {
-				console.error(`⚠️ Failed to increment clicks for ${shortCode}:`, err);
+			// Write-Back буферизация: O(1) инкремент в Redis без синхронного UPDATE в PostgreSQL
+			this.cache.incrementBufferedClicks(shortCode).catch((err) => {
+				console.error(`⚠️ Failed to buffer click for ${shortCode}:`, err);
 			});
 			return cachedUrl;
 		}
@@ -62,8 +68,8 @@ export class UrlService {
 
 		await this.cache.setUrl(shortCode, entity.original_url);
 
-		this.repository.incrementClicks(shortCode).catch((err) => {
-			console.error(`⚠️ Failed to increment clicks for ${shortCode}:`, err);
+		this.cache.incrementBufferedClicks(shortCode).catch((err) => {
+			console.error(`⚠️ Failed to buffer click for ${shortCode}:`, err);
 		});
 
 		return entity.original_url;
@@ -75,8 +81,12 @@ export class UrlService {
 			throw new NotFoundError(`Short URL with code "${shortCode}" not found`);
 		}
 
+		// Учитываем клики, накопленные в буфере Redis, но еще не сброшенные в PostgreSQL
+		const bufferedClicks = await this.cache.getBufferedClicks(shortCode);
+
 		return {
 			...entity,
+			clicks: entity.clicks + bufferedClicks,
 			shortUrl: `${env.BASE_URL}/${entity.short_code}`,
 		};
 	}
@@ -132,7 +142,7 @@ export class UrlService {
 
 	private async generateUniqueShortCode(maxAttempts: number = 5): Promise<string> {
 		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-			const code = nanoid(6);
+			const code = generateShortCode();
 			const exists = await this.repository.existsByShortCode(code);
 			if (!exists) {
 				return code;
